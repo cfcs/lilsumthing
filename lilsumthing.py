@@ -88,23 +88,25 @@ class ProductWalker(ast.NodeTransformer):
         self.level = 0
         self.node_id = 0
         self.states = [] # stack of state machine states for ast.For loops
+        # dict of (potential) accumulator variables. note that this does
+        # not get cleaned up, and it doesn't care about scope. TODO:
         self.local_counters = {}
-        self.allowed_name_refs = set()
+        self.allowed_name_refs = set() # allowed refs to the accumulator
         super().__init__()
     def pl(self, *a):
+        '''print with indentation based on current nesting level in the tree'''
         if self.verbose:
             print('  '*self.level, *a)
         pass
-    def pp(self, lst):
-        return self.ppl(lst)
-    def ppl(self, lstlst):
+    def pp(self, lstlst):
+        '''pretty-prints ast nodes, and nested iterables of ast nodes'''
         if isinstance(lstlst, ast.AST):
             return ast.unparse(lstlst)
         if isinstance(lstlst[0], ast.AST):
-            return '[' + '; '.join((self.ppl(y)
+            return '[' + '; '.join((self.pp(y)
                                     for y in lstlst)) + ']'
         return '[' + '; '.join(
-            self.ppl(x) for x in lstlst
+            self.pp(x) for x in lstlst
         ) + ']'
 
     def visit_Assign(self, node):
@@ -134,9 +136,9 @@ class ProductWalker(ast.NodeTransformer):
         return node
 
     def postprocess_augassign(self, node):
-        self.pl('postprocess_augassign', self.ppl(node))
+        self.pl('postprocess_augassign', self.pp(node))
         adds = getattr(node.value, 'adds', [node.value])
-        self.pl(self.ppl(adds))
+        self.pl(self.pp(adds))
         def fold_constant_factors(lst):
             '''given a list like
             [[i; 15; 2]; [i; 40]; [i; 80]; 14; [15;2]; [x;5]; [z; 2]; [z;3];]
@@ -218,7 +220,7 @@ class ProductWalker(ast.NodeTransformer):
                     # and set dont_optimize=True. TODO.
                     raise NotImplemented
                 pass # category 2
-        self.pl(self.ppl(adds))
+        self.pl(self.pp(adds))
         #
         # Add the initial value of the counter: the 123 in
         # (S = 123, for ... S += ..):
@@ -228,7 +230,7 @@ class ProductWalker(ast.NodeTransformer):
         # Final reduction step:
         #
         adds = fold_constant_factors(adds)
-        self.pl(self.ppl(adds))
+        self.pl(self.pp(adds))
         #
         # At the end we need to transform our [addends[products]] list into
         # a nested AST node structure:
@@ -245,7 +247,7 @@ class ProductWalker(ast.NodeTransformer):
             elif type(b) == ast.Constant and b.value == 1: return a
             return ast.BinOp(left=a, op=ast.Mult(), right=b)
         adds = list(map(lambda addend: reduce(mk_mult, addend[:], ast.Constant(1)) , adds))
-        self.pl(self.ppl(adds))
+        self.pl(self.pp(adds))
         expr = reduce(mk_add, adds, ast.Constant(0))
         self.states[-1].for_replacement = ast.Assign(
             targets=[node.target],
@@ -311,19 +313,19 @@ class ProductWalker(ast.NodeTransformer):
                     node = self.postprocess_augassign(node)
         return node
     def visit_BinOp_dfs(self, node):
-        pl, pp, ppl = self.pl, self.pp, self.ppl
+        pl, pp = self.pl, self.pp
         if is_add(node):
             node.adds = []
             left  = getattr(node.left, 'adds', [node.left])
             right = getattr(node.right, 'adds', [node.right])
             node.adds.extend(left)
             node.adds.extend(right)
-            self.pl('Add.adds:', self.ppl(node.adds))
+            self.pl('Add.adds:', self.pp(node.adds))
             return node
         elif type(node.op) == ast.Mult:
             left = getattr(node.left, 'adds', [node.left])
             right = getattr(node.right, 'adds', [node.right])
-            self.pl('mult', ppl(left), ppl(right))
+            self.pl('mult', pp(left), pp(right))
             prod = []
             # here we have the factors with nested lists:
             # [5; [3;2]]
@@ -334,7 +336,7 @@ class ProductWalker(ast.NodeTransformer):
                     if type(t) is list: prod[-1] += t
                     else: prod[-1] += [t]
             node.adds = prod
-            self.pl('prod', ppl(prod))
+            self.pl('prod', pp(prod))
         else:
             self.pl('better safe than sorry, not optimizing because', self.pp(node))
             self.states[-1].dont_optimize = True
@@ -370,6 +372,8 @@ def optimizable_range(iterable):
                                 }
     return {}
 
+### examples of patterns to match to identify relevant ast subtrees:
+#
 # S=0
 # Assign(targets=[Name(id='S', ctx=Store())],
 #        value=Constant(value=0))
