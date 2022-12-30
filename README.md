@@ -4,9 +4,9 @@ This repo contains a little experiment with the Python [`ast` module](https://do
 
 I wanted to play with AST rewriting, and based on my previous [notes about Gauss summations](https://github.com/cfcs/misc/blob/master/gauss-sum.md) I thought it would be fun to try to write something that could rewrite simple for-loops that calculated sums, replacing them with their closed-form represenation.
 
-It presently handles multiplications and additions, with constant folding, and it tries to refrain from suggesting incorrect patches, but it is probably not foolproof. If you manage to fool it, please open an issue and we'll add a test. :-) In general, any and all suggestions and patches are welcome here.
+It presently handles multiplications and additions, subtractions, and simple exponentiations, with constant folding, and it tries to refrain from suggesting incorrect patches, but it is probably not foolproof. If you manage to fool it, please open an issue and we'll add a test. :-) In general, any and all suggestions and patches are welcome here.
 
-Subtraction, powers, modulo/division, and other arithmetic operations would be nice to add.
+Modulo/division, and other arithmetic operations would be nice to add.
 
 It would also be great to extend the "opportunity to optimize here" matching to cover list comprehensions and generator expressions in addition to `for i in range(..):`.
 
@@ -106,5 +106,24 @@ $ python3 lilsumthing.py example3.py
 -    for i in range(1, 50000000):
 -        S += i * (3 + i * n + 4) * i + (3 + n * 3 * i) * 5 + i * (2 + n + i) * 5
 +    S = 499999997500000599999985 + n * 1562499937500025624999500000000
+     return S
+```
+
+### Example 4
+```diff
+ def sum4(n):
+     S = 0
+-    for i in range(1000000):
+-        S += ((-i)**2) * -2 * -3 *(-i-2)
++    S = -1500000999995500002000000
+     return S
+```
+### Example 5
+```diff
+ def sum5(n):
+     S = 0
+-    for i in range(1000):
+-        S += n * (n*5 - 2 * i * n) ** 3 - n * (i * 7 * n - 10*n) ** 2
++    S = n * n * n * n * -1976106790000 + n * n * n * -16239011500
      return S
 ```

@@ -48,6 +48,12 @@ res = sum(( i*i for i in range(x,z)))
 ==>    z-1
  res ⟵  ⅀  ((z-1)*z/2) - ((i-1)*(i)/2)
        i=x
+==>    z-1
+ res ⟵  ⅀  (( z*z - z)/2) - (( i*i - i)/2)
+       i=x
+==>    z-1
+ res ⟵  ⅀  (( z*z - z)/2) - (( i*i - i)/2)
+       i=x
 ==> and then a factor of 6 is applied to be able to erase the fraction (see link above)
 ==> ((z-1)*(z-1+1)*(2*(z-1)+1))//6 - ((x-1)*(x-1+1)*(2*(x-1)+1))//6
     '''
@@ -72,6 +78,9 @@ def cube_from_to(f,t):
 
 def is_add(n):
     return type(n) == ast.BinOp and type(getattr(n,'op',None)) == ast.Add
+
+def is_int(n):
+    return type(n) == ast.Constant and type(n.value) is int
 
 class StateMachine():
     def __init__(self, for_target, for_range):
@@ -125,7 +134,7 @@ class ProductWalker(ast.NodeTransformer):
         '''
         for target in node.targets:
             if type(target) == ast.Name and \
-               type(node.value) == ast.Constant:
+               is_int(node.value):
                 # TODO should try to check that it's a numerical constant?
                 # or at least complain if it is clearly not
                 self.pl('identified potential counter', target.id)
@@ -138,6 +147,14 @@ class ProductWalker(ast.NodeTransformer):
     def postprocess_augassign(self, node):
         self.pl('postprocess_augassign', self.pp(node))
         adds = getattr(node.value, 'adds', [node.value])
+        for lst in adds:
+            for x in (type(lst) is list and lst or [lst]):
+                if type(x) == ast.Constant: continue
+                if type(x) == ast.Name: continue
+                self.pl('postprocess: not rewriting because our adds is not Constant/Name:',
+                        type(x), self.pp(x), )
+                self.states[-1].dont_optimize = True
+                return node
         self.pl(self.pp(adds))
         def fold_constant_factors(lst):
             '''given a list like
@@ -237,14 +254,14 @@ class ProductWalker(ast.NodeTransformer):
         def mk_add(a,b):
             # TODO if they are both 0 we should remove it entirely,
             # instead of returning a ast.Constant(0):
-            if type(a) == ast.Constant and a.value == 0: return b
-            if type(b) == ast.Constant and b.value == 0: return a
+            if is_int(a) and a.value == 0: return b
+            if is_int(b) and b.value == 0: return a
             return ast.BinOp(left=a, op=ast.Add(), right=b)
         def mk_mult(a,b):
-            if type(a) == ast.Constant and a.value == 0: return ast.Constant(0)
-            if type(b) == ast.Constant and b.value == 0: return ast.Constant(0)
-            if type(a) == ast.Constant and a.value == 1: return b
-            elif type(b) == ast.Constant and b.value == 1: return a
+            if is_int(a) and a.value == 0: return ast.Constant(0)
+            if is_int(b) and b.value == 0: return ast.Constant(0)
+            if is_int(a) and a.value == 1: return b
+            elif is_int(b) and b.value == 1: return a
             return ast.BinOp(left=a, op=ast.Mult(), right=b)
         adds = list(map(lambda addend: reduce(mk_mult, addend[:], ast.Constant(1)) , adds))
         self.pl(self.pp(adds))
@@ -302,7 +319,19 @@ class ProductWalker(ast.NodeTransformer):
                 ast.fix_missing_locations(finalstate.for_replacement)
                 return finalstate.for_replacement
         elif still_optimizing:
+            if type(node) == ast.UnaryOp:
+                if type(node.op) == ast.USub:
+                    # rewrite '-x' as '((-1) * x)', falling through to
+                    # the visit_BinOp_dfs(node) below with the rewritten node:
+                    self.pl('rewriting USub as BinOp.Mult:', self.pp(node))
+                    node = ast.BinOp(left=ast.Constant(-1),
+                                     op=ast.Mult(),
+                                     right=node.operand)
+                else:
+                    self.pl('not optimizing; unhandled UnaryOp:', self.pp(node))
+                    self.states[-1].dont_optimize = True
             if type(node) == ast.BinOp:
+                self.pl('postvisit: visit_BinOp_dfs:',self.pp(node))
                 node = self.visit_BinOp_dfs(node)
             elif type(node) == ast.AugAssign and type(node.op) == ast.Add:
                 # TODO we could handle repeated
@@ -322,6 +351,15 @@ class ProductWalker(ast.NodeTransformer):
             node.adds.extend(right)
             self.pl('Add.adds:', self.pp(node.adds))
             return node
+        elif type(node.op) == ast.Sub:
+            node.adds = []
+            left  = getattr(node.left, 'adds', [node.left])
+            right = ([ast.Constant(-1)]+factors
+                     for factors in getattr(node.right, 'adds', [[node.right]]))
+            node.adds.extend(left)
+            node.adds.extend(right)
+            self.pl('Sub.adds:', self.pp(node.adds))
+            return node
         elif type(node.op) == ast.Mult:
             left = getattr(node.left, 'adds', [node.left])
             right = getattr(node.right, 'adds', [node.right])
@@ -337,8 +375,26 @@ class ProductWalker(ast.NodeTransformer):
                     else: prod[-1] += [t]
             node.adds = prod
             self.pl('prod', pp(prod))
+        elif type(node.op) == ast.Pow and is_int(node.right):
+            # rewrite [x**y] to [[*([x]*y)]] when y is a constant.
+            self.pl("pow left.adds:", self.pp(getattr(node.left, 'adds', node.left)))
+            prod = []
+            for p in itertools.product(
+                    *([getattr(
+                        node.left,
+                        'adds', [node.left])]*node.right.value)
+            ):
+                prod.append([])
+                for t in p:
+                    if type(t) is list: prod[-1] += t
+                    else: prod[-1] += [t]
+            node.adds = prod
+            if not node.adds:
+                node.adds = [ast.Constant(1)] # ^0, identity of multiplication is 1
+            self.pl("pow left:", self.pp(node.left),
+                    "right:", self.pp(node.right), "node.adds:", self.pp(node.adds))
         else:
-            self.pl('better safe than sorry, not optimizing because', self.pp(node))
+            self.pl('better safe than sorry, not optimizing because', type(node.op), self.pp(node))
             self.states[-1].dont_optimize = True
         return node
 
@@ -350,26 +406,30 @@ def optimizable_range(iterable):
     if type(iterable) == ast.Call:
         if type(iterable.func) == ast.Name:
             if iterable.func.id == 'range':
-                if len(iterable.args) >= 1 and \
-                   type(iterable.args[0]) == ast.Constant:
+                if len(iterable.args) >= 1:
                     if len(iterable.args) == 1:
-                        return {'len': iterable.args[0].value,
-                                'square': square_to(iterable.args[0].value),
-                                'cube': cube_to(iterable.args[0].value),
-                                'sum': range_to(iterable.args[0].value)}
-                    elif len(iterable.args) == 2 and \
-                         type(iterable.args[1]) == ast.Constant:
-                        return {'len':
-                                iterable.args[1].value - iterable.args[0].value,
-                                'square': square_from_to(
-                                    iterable.args[0].value,
-                                    iterable.args[1].value),
-                                'cube': cube_from_to(
-                                    iterable.args[0].value,
-                                    iterable.args[1].value),
-                                'sum': range_from_to(iterable.args[0].value,
-                                                     iterable.args[1].value)
-                                }
+                        if is_int(iterable.args[0]):
+                            return {'len': iterable.args[0].value,
+                                    'square': square_to(iterable.args[0].value),
+                                    'cube': cube_to(iterable.args[0].value),
+                                    'sum': range_to(iterable.args[0].value)}
+                        else:
+                            raise Exception("range(x) for non-constant x"+str(ast.unparse(iterable)))
+                    elif len(iterable.args) == 2:
+                        if is_int(iterable.args[1]):
+                            return {'len':
+                                    iterable.args[1].value - iterable.args[0].value,
+                                    'square': square_from_to(
+                                        iterable.args[0].value,
+                                        iterable.args[1].value),
+                                    'cube': cube_from_to(
+                                        iterable.args[0].value,
+                                        iterable.args[1].value),
+                                    'sum': range_from_to(iterable.args[0].value,
+                                                         iterable.args[1].value)
+                                    }
+                        else:
+                            raise Exception("range(x,y) for non-constant y: "+str(ast.unparse(iterable)))
     return {}
 
 ### examples of patterns to match to identify relevant ast subtrees:

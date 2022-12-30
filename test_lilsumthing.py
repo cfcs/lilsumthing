@@ -318,6 +318,16 @@ for i in range(1,10):
         'S = 2025',
     ], unparsed
 
+def test_archimedes3():
+    # >>> sum((i**3 for i in range(1,10)))
+    o = lilsumthing.optimize('''
+S = 0
+for i in range(1,10):
+    S += i**3
+''')
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 2025', unparsed
+
 def test_cube2():
     # >>> sum((i*(i+7)*i for i in range(1,10)))
     # 4020
@@ -352,6 +362,80 @@ for i in range(1,50000000):
         'S = 499999997500000599999985 + n * 1562499937500025624999500000000',
         ], unparsed.replace('\n', ';')
 
+def test_factors2():
+    orig_src=(
+'''
+S = 0
+for i in range(1,50000000):
+  S += (3+i*n+4)*(i**2) + (3+n*3*i)*5 + i**2*5 + i*(2+n)*5
+# 151 * 4 = 604
+''')
+    unparsed = ast.unparse(lilsumthing.optimize(orig_src))
+    assert unparsed in [
+        'S = 0\nS = 499999997500000599999985 + n * 1562499937500025624999500000000',
+        'S = 499999997500000599999985 + n * 1562499937500025624999500000000',
+        ], unparsed.replace('\n', ';')
+
+def test_factors3():
+    '''>>> sum([(2+4*i)**2 for i in range(1,10)])
+    5316
+    >>> 2*2 * 4*285  + 2*285 + 4*45 + 2+4
+    5316
+    '''
+    orig_src = '''
+S = 0
+for i in range(1,10):
+  S += (2 + 4*i)**2
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 5316', unparsed.replace('\n', ';')
+
+def test_factors4():
+    '''>>> sum([(2*2+4*i)**2 for i in range(1,10)])
+    6144
+    '''
+    orig_src = '''
+S = 0
+for i in range(1,10):
+  S += (2*2 + 4*i)**2
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 6144', unparsed.replace('\n', ';')
+
+def test_factors5():
+    '''>>> sum([(1+4*i)**2 for i in range(1,10)])
+    4929
+    >>> (4*4*285 + 1*285 + 4*4*4 + (4+1)*4)
+    4929
+    >>> (4*4*285 + 1*285 + 4*4*3 + 3*3*4)
+    4929
+    '''
+    orig_src = '''
+S = 0
+for i in range(1,10):
+  S += (1 + 4*i)**2
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 4929', unparsed.replace('\n', ';')
+
+def test_factors6():
+    '''>>> sum([(2+3*i)**2 for i in range(1,10)])
+    3141
+    >>> (3*3*285 + 2*285 + 2*3)
+    3141
+    '''
+    orig_src = '''
+S = 0
+for i in range(1,10):
+  S += (2 + 3*i)**2
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 3141', unparsed.replace('\n', ';')
+
 def test_minus0():
     orig_src='''
 S = 0
@@ -360,7 +444,87 @@ for i in range(10):
 '''
     o = lilsumthing.optimize(orig_src)
     unparsed = ast.unparse(o)
-    assert unparsed == ast.unparse(ast.parse(orig_src))
+    assert unparsed == 'S = 0\nS = 45'
+
+def test_minus1():
+    orig_src='''
+S = 0
+for i in range(10):
+  S += 0-i
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = -45'
+
+def test_unaryminus1():
+    orig_src='''
+S = 0
+for i in range(10):
+  S += -i
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = -45'
+
+def test_unaryminus2():
+    orig_src='''
+S = 0
+for i in range(10):
+  S += -i * -1
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 45'
+
+def test_unaryminus3():
+    '''>>> sum([-i*-i for i in range(10)])
+    285
+    '''
+    orig_src='''
+S = 0
+for i in range(10):
+  S += -i * -i
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 285'
+
+def test_unaryminus4():
+    '''>>> sum([-i*i*-2*-3*(-i-2) for i in range(10)])
+    15570
+    '''
+    orig_src='''
+S = 0
+for i in range(10):
+  S += -i*i*-2*-3*(-i-2)
+'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = 15570'
+
+def test_unaryminus5():
+    '''
+    '''
+    orig_src='''
+S = 0
+for i in range(1000000):
+    S += ((-i)**2) * -2 * -3 *(-i-2)'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS = -1500000999995500002000000'
+
+def test_variable_range():
+    orig_src = '''
+S = 0
+for i in range(a,b):
+    S += i'''
+    try:
+        o = lilsumthing.optimize(orig_src)
+    except Exception as e:
+        assert str(e) == 'range(x,y) for non-constant y: range(a, b)'
+        return
+    unparsed = ast.unparse(o)
+    assert unparsed == 'S = 0\nS += b*(b+1)//2 - a*(a+1)//2'
 
 def test_range_equiv():
     '''∀x, x>=0: range_from(x) == range_from_to(0, x)'''
