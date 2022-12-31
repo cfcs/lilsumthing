@@ -5,10 +5,17 @@ from functools import reduce
 import argparse
 import difflib
 
-# TODO instead of defining functions for square, cube etc for powers it would be
-# nice to just generalize by adding nested sum loops.
+# the from_to(a,b+1) variants below exploit this equivalence:
+# b    b    a-1
+# ⅀ =  ⅀  - ⅀
+# a   i=1   i=1
 
 def gauss(n):
+    '''
+    # n
+    # ⅀ i**1 <=> (n*(n+1))//2
+    # i=1
+    '''
     return (n*(n+1)) // 2
 def range_to(n):
     return ((n-1)*n) // 2
@@ -29,7 +36,11 @@ res = sum(( i*y for i in range(x,z)))
     '''
     return range_to(t) - range_to(f)
 def square_to(t):
-    '''see square_from_to'''
+    '''see square_from_to.
+    # n
+    # ⅀ i**2 <=> (n*(n+1)*(2*n+1))//6
+    # 1
+    '''
     return ((t-1)*(t-1+1)*(2*(t-1)+1))//6
 def square_from_to(f, t):
     '''
@@ -74,7 +85,96 @@ range_from_to(x,z) * y
 def cube_to(t):
     return ((t-1)**2 * (t)**2) // 4
 def cube_from_to(f,t):
+    '''
+    # n                                ( n  )   ( n  )
+    # ⅀ i**3 <=> ((n*(n+1))//2)**2 <=> ( ⅀ i) * ( ⅀ i) <=> (n**2*(n+1)**2) / (2**2)
+    # i=1                              (i=1 )   (i=1 )
+    '''
     return cube_to(t) - cube_to(f)
+def power_from_to_4(f,t):
+    '''
+    # i
+    # ⅀ n**4 <=> (i*(i+1))*(2*i+1)*(3*i**2 + 3*i -1)//30
+    # n=1
+    '''
+    return ((t*(t-1))*(2*(t-1)+1)*(3*(t-1)**2 + 3*(t-1) -1)//30
+            - (f*(f-1))*(2*f)*(3*(f-1)**2 + 3*(f-1) -1)//30)
+def power_from_to_5(f,t):
+    '''
+    # n
+    # ⅀ i**5 <=> (n**2 * (n+1)**2 * (2*n**2 + 2*n -1)) // 12
+    # 1
+    # note that Faulhaber's formula gives a potentially nicer solution: (4*a**3-a**2)//3 where a is n*(n+1)//2
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    return ((t**2 * (t+1)**2 * (2*t**2 + 2*t -1)) // 12
+        - (f**2 * (f+1)**2 * (2*f**2 + 2*f -1)) // 12)
+def power_from_to_6(f,t):
+    '''
+    # n          n
+    # ⅀ i**6 <=> ⅀ i**5 + (n-1+1)**2 <=> (6*n**7 +21*n**6 + 21*n**5 -7*n**3 + n)//42
+    # 1          1
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    return (
+        (6*t**7 +21*t**6 + 21*t**5 -7*t**3 + t)//42
+        - (6*f**7 +21*f**6 + 21*f**5 -7*f**3 + f)//42
+    )
+def power_from_to_7(f,t):
+    '''
+    # n
+    # ⅀ i**7 <=> (3*n**8 + 12*n**7 + 14*n**6 -7*n**4 +2*n**2)/24
+    # 1
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    return ((3*t**8 + 12*t**7 + 14*t**6 -7*t**4 +2*t**2)//24
+            - (3*f**8 + 12*f**7 + 14*f**6 -7*f**4 +2*f**2)//24)
+def power_from_to_8(f,t):
+    '''
+    # n
+    # ⅀ i**8 <=> (10*n**9 + 45*n**8 + 60*n**7  -42*n**5 +20*n**3 -3*n)//90
+    # 1
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    return ((10*t**9 + 45*t**8 + 60*t**7  -42*t**5 +20*t**3 -3*t)//90
+            - (10*f**9 + 45*f**8 + 60*f**7  -42*f**5 +20*f**3 -3*f)//90)
+def power_from_to_9(f,t):
+    '''
+    # n
+    # ⅀ i**9 <=> (2*n**10 + 10*n**9 +15*n**8 -14*n**6 +10*n**4 -3*n**2)//20
+    # 1
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    return ((2*t**10 + 10*t**9 +15*t**8 -14*t**6 +10*t**4 -3*t**2)//20
+            - (2*f**10 + 10*f**9 +15*f**8 -14*f**6 +10*f**4 -3*f**2)//20)
+def power_from_to_10(f,t):
+    '''
+    # n
+    # ⅀ i**10 <=> (6*n**11 + 33*n**10 +55*n**9 - 66*n**7 +66*n**5 - 33*n**3 +5*n)//66
+    # 1
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    return ((6*t**11 + 33*t**10 +55*t**9 - 66*t**7 +66*t**5 - 33*t**3 +5*t)//66
+            - (6*f**11 + 33*f**10 +55*f**9 - 66*f**7 +66*f**5 - 33*f**3 +5*f)//66)
+def power_from_to_11(f,t):
+    '''
+    # Faulhaber polynomial solution for **11 where a=n*(n+1)//2
+    # n
+    # ⅀ i**11 <=> (16*a**6-32*a**5 + 34*a**4 -20*a**3 + 5*a**2) // 3
+    # 1
+    '''
+    t -= 1
+    f = max(f-1, 0)
+    a_t = t*(t+1)//2
+    a_f = f*(f+1)//2
+    return ((16*a_t**6-32*a_t**5 + 34*a_t**4 -20*a_t**3 + 5*a_t**2) // 3
+            - (16*a_f**6-32*a_f**5 + 34*a_f**4 -20*a_f**3 + 5*a_f**2) // 3)
 
 def is_add(n):
     return type(n) == ast.BinOp and type(getattr(n,'op',None)) == ast.Add
@@ -193,7 +293,7 @@ class ProductWalker(ast.NodeTransformer):
                 # if there are no constants, it will be 1, so we retain the
                 # property that [i]+[i] turns into [i;2] and not [i;0]:
                 partitions[name_hash] = partitions.get(name_hash, {
-                    'sum': 0,
+                    'sum': 0, # identity of addition
                     'wo_constants': wo_constants
                 })
                 partitions[name_hash]['sum'] += this_sum
@@ -224,18 +324,17 @@ class ProductWalker(ast.NodeTransformer):
                 adds[i] = list(filter(
                     lambda x: getattr(x,'id',None) != self.states[-1].for_target.id,
                     adds[i]))
-                if 1 == powers_of_loop_var:
-                    adds[i] += [ast.Constant(self.states[-1].for_range['sum'])]
-                elif 2 == powers_of_loop_var:
-                    adds[i] += [ast.Constant(self.states[-1].for_range['square'])]
-                elif 3 == powers_of_loop_var:
-                    adds[i] += [ast.Constant(self.states[-1].for_range['cube'])]
+                const = self.states[-1].for_range.get(powers_of_loop_var, None)
+                if const:
+                    adds[i] += [ast.Constant(const)]
                 else:
-                    # category 2 with loopvar^n with n >= 4, this should
+                    # category 2 with loopvar^n with n >= 12, this should
                     # be handled in the future.
                     # in the meantime we should abort the postprocessing
                     # and set dont_optimize=True. TODO.
-                    raise NotImplemented
+                    self.pl(f'powers of {powers_of_loop_var} not implemented, not optimizing')
+                    self.states[-1].dont_optimize = True
+                    return node
                 pass # category 2
         self.pl(self.pp(adds))
         #
@@ -294,6 +393,8 @@ class ProductWalker(ast.NodeTransformer):
             self.pl('ast.For loop:', ast.unparse(node))
             p_range = optimizable_range(node.iter)
             self.states.append(StateMachine(node.target, p_range))
+            if not p_range:
+                self.states[-1].dont_optimize = True
         elif type(node) == ast.AugAssign:
             self.allowed_name_refs.add(node.target)
 
@@ -401,35 +502,46 @@ class ProductWalker(ast.NodeTransformer):
 def optimizable_range(iterable):
     '''Looks for sequential ranges whose length
     we can compute, and/or their sum.
-    Currently only handles constants, and assumes they are integer. TODO.
+    Currently only handles constants. TODO.
     '''
     if type(iterable) == ast.Call:
         if type(iterable.func) == ast.Name:
             if iterable.func.id == 'range':
                 if len(iterable.args) >= 1:
-                    if len(iterable.args) == 1:
-                        if is_int(iterable.args[0]):
-                            return {'len': iterable.args[0].value,
-                                    'square': square_to(iterable.args[0].value),
-                                    'cube': cube_to(iterable.args[0].value),
-                                    'sum': range_to(iterable.args[0].value)}
+                    begin = 0
+                    end = 0
+                    length = 0
+                    if is_int(iterable.args[0]):
+                        if len(iterable.args) == 1:
+                            end = iterable.args[0].value
+                            length = iterable.args[0].value
                         else:
-                            raise Exception("range(x) for non-constant x"+str(ast.unparse(iterable)))
-                    elif len(iterable.args) == 2:
+                            begin = iterable.args[0].value
+                    else:
+                        raise Exception("range(x) for non-constant x: "+str(ast.unparse(iterable)))
+                    if len(iterable.args) == 2:
                         if is_int(iterable.args[1]):
-                            return {'len':
-                                    iterable.args[1].value - iterable.args[0].value,
-                                    'square': square_from_to(
-                                        iterable.args[0].value,
-                                        iterable.args[1].value),
-                                    'cube': cube_from_to(
-                                        iterable.args[0].value,
-                                        iterable.args[1].value),
-                                    'sum': range_from_to(iterable.args[0].value,
-                                                         iterable.args[1].value)
-                                    }
+                            end = iterable.args[1].value
+                            length = iterable.args[1].value - iterable.args[0].value
                         else:
+                            # TODO really ough to deal with this case
                             raise Exception("range(x,y) for non-constant y: "+str(ast.unparse(iterable)))
+                    if len(iterable.args) > 2:
+                        return {}
+                    return {
+                        'len': length,
+                        1: range_from_to(begin, end),
+                        2: square_from_to(begin, end),
+                        3: cube_from_to(begin, end),
+                        4: power_from_to_4(begin, end),
+                        5: power_from_to_5(begin, end),
+                        6: power_from_to_6(begin, end),
+                        7: power_from_to_7(begin, end),
+                        8: power_from_to_8(begin, end),
+                        9: power_from_to_9(begin, end),
+                        10: power_from_to_10(begin, end),
+                        11: power_from_to_11(begin, end),
+                    }
     return {}
 
 ### examples of patterns to match to identify relevant ast subtrees:
