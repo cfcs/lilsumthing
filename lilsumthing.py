@@ -191,6 +191,80 @@ class StateMachine():
         # abort optimizing this For loop:
         self.dont_optimize = False
 
+def fold_constant_factors(lst):
+    '''given a list like
+    [[i; 15; 2]; [i; 40]; [i; 80]; 14; [15;2]; [x;5]; [z; 2]; [z;3];]
+    we want to group by / partition the addends into partitions for each
+    distinct set of identical non-constant factors:
+        [i; 15; 2]; [i; 40]; [i; 80];
+        [14]; [15;2];
+        [x; 5];
+        [z; 2]; [z; 3];
+    and then we want to fold the constant factors, resulting in a
+    single product for each such partition:
+        [i; 15*2 + 30 + 40 + 80] == [i; 150]
+        [14]; [15;2];       == [44]
+        [x; 5]            == [x; 5]
+        [z; 2+3]          == [z; 5]
+    '''
+    partitions = {}
+    for product in lst: # maybe get rid of enumerate()
+        constants , wo_constants = [], []
+        if type(product) != list:
+            product = [product]
+        for x in product:
+            if type(x) != ast.Constant: wo_constants.append(x)
+            else: constants.append(x)
+            # ordering doesn't matter, but [i;i] and [i] go in
+            # separate partitions:
+        wo_constants.sort(key=lambda x: x.id)
+        name_hash = ','.join(x.id for x in wo_constants)
+        # now we do constant folding for each shard, computing the
+        # product of (constants) and storing the running sum:
+        this_sum = 0
+        if constants:
+            this_sum = reduce(int.__mul__, (x.value for x in constants), 1)
+        elif wo_constants:
+            this_sum = 1
+        # note that we have to be careful not to add a zero 'sum'
+        # by accident. unless a constant above is 0,
+        # this_sum will be nonzero because it's initialized with 1.
+        # if there are no constants, it will be 1, so we retain the
+        # property that [i]+[i] turns into [i;2] and not [i;0]:
+        if this_sum:
+            partitions[name_hash] = partitions.get(name_hash, {
+                'sum': 0, # identity of addition
+                'wo_constants': wo_constants
+            })
+            partitions[name_hash]['sum'] += this_sum
+            if not partitions[name_hash]['sum']:
+                # [[i, 1], [i, -1]] ("i*1+i*-1" = "i-i" = "0"):
+                # these cancel out, so we remove them:
+                del partitions[name_hash]
+        # and finally we reconstruct the original format:
+        ret = []
+    for pdict in partitions.values():
+        assert pdict['sum'] != 0, pdict
+        if pdict['sum'] == 1 and pdict['wo_constants']:
+            ret += [[*pdict['wo_constants']]]
+        else:
+            ret += [[*pdict['wo_constants'], ast.Constant(pdict['sum'])]]
+    return ret
+
+def pp(lstlst):
+    '''pretty-prints ast nodes, and nested iterables of ast nodes'''
+    if isinstance(lstlst, ast.AST):
+        return ast.unparse(lstlst)
+    if isinstance(lstlst, list) or isinstance(lstlst, tuple):
+        if lstlst and isinstance(lstlst[0], ast.AST):
+            return '[' + '; '.join((pp(y)
+                for y in lstlst)) + ']'
+        return '[' + '; '.join(
+            pp(x) for x in lstlst
+        ) + ']'
+    return lstlst
+
+
 class ProductWalker(ast.NodeTransformer):
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -205,18 +279,10 @@ class ProductWalker(ast.NodeTransformer):
     def pl(self, *a):
         '''print with indentation based on current nesting level in the tree'''
         if self.verbose:
-            print('  '*self.level, *a)
-        pass
-    def pp(self, lstlst):
-        '''pretty-prints ast nodes, and nested iterables of ast nodes'''
-        if isinstance(lstlst, ast.AST):
-            return ast.unparse(lstlst)
-        if isinstance(lstlst[0], ast.AST):
-            return '[' + '; '.join((self.pp(y)
-                                    for y in lstlst)) + ']'
-        return '[' + '; '.join(
-            self.pp(x) for x in lstlst
-        ) + ']'
+            print('  '*self.level, end='')
+            for arg in a:
+                print('', pp(arg), end='')
+            print('')
 
     def visit_Assign(self, node):
         '''BFS visit of ast.Assign nodes, where we try to identify the
@@ -245,65 +311,19 @@ class ProductWalker(ast.NodeTransformer):
         return node
 
     def postprocess_augassign(self, node):
-        self.pl('postprocess_augassign', self.pp(node))
+        self.pl('postprocess_augassign', node)
         adds = getattr(node.value, 'adds', [node.value])
         for lst in adds:
             for x in (type(lst) is list and lst or [lst]):
                 if type(x) == ast.Constant: continue
                 if type(x) == ast.Name: continue
                 self.pl('postprocess: not rewriting because our adds is not Constant/Name:',
-                        type(x), self.pp(x), )
+                        type(x), x, )
                 self.states[-1].dont_optimize = True
                 return node
-        self.pl(self.pp(adds))
-        def fold_constant_factors(lst):
-            '''given a list like
-            [[i; 15; 2]; [i; 40]; [i; 80]; 14; [15;2]; [x;5]; [z; 2]; [z;3];]
-            we want to group by / partition the addends into partitions for each
-            distinct set of identical non-constant factors:
-            [i; 15; 2]; [i; 40]; [i; 80];
-            [14]; [15;2];
-            [x; 5];
-            [z; 2]; [z; 3];
-            and then we want to fold the constant factors, resulting in a
-            single product for each such partition:
-            [i; 15*2 + 30 + 40 + 80] == [i; 150]
-            [14]; [15;2];       == [44]
-            [x; 5]            == [x; 5]
-            [z; 2+3]          == [z; 5]
-            '''
-            partitions = {}
-            for product in lst: # maybe get rid of enumerate()
-                constants , wo_constants = [], []
-                if type(product) != list:
-                    product = [product]
-                for x in product:
-                    if type(x) != ast.Constant: wo_constants.append(x)
-                    else: constants.append(x)
-                # ordering doesn't matter, but [i;i] and [i] go in
-                # separate partitions:
-                wo_constants.sort(key=lambda x: x.id)
-                name_hash = ','.join(x.id for x in wo_constants)
-                # now we do constant folding for each shard, computing the
-                # product of (constants) and storing the running sum:
-                this_sum = reduce(int.__mul__, (x.value for x in constants), 1)
-                # note that we have to be careful not to add a zero 'sum'
-                # by accident. unless a constant above is 0,
-                # this_sum will be nonzero because it's initialized with 1.
-                # if there are no constants, it will be 1, so we retain the
-                # property that [i]+[i] turns into [i;2] and not [i;0]:
-                partitions[name_hash] = partitions.get(name_hash, {
-                    'sum': 0, # identity of addition
-                    'wo_constants': wo_constants
-                })
-                partitions[name_hash]['sum'] += this_sum
-            # and finally we reconstruct the original format:
-            ret = []
-            for pdict in partitions.values():
-                ret += [[*pdict['wo_constants'], ast.Constant(pdict['sum'])]]
-            return ret
+        self.pl(adds)
         adds = fold_constant_factors(adds)
-        self.pl(self.pp(adds))
+        self.pl(adds)
 
         # after constant folding, we are left with products containing
         # variable names and constants, or just a single constant.
@@ -336,7 +356,7 @@ class ProductWalker(ast.NodeTransformer):
                     self.states[-1].dont_optimize = True
                     return node
                 pass # category 2
-        self.pl(self.pp(adds))
+        self.pl(adds)
         #
         # Add the initial value of the counter: the 123 in
         # (S = 123, for ... S += ..):
@@ -346,7 +366,7 @@ class ProductWalker(ast.NodeTransformer):
         # Final reduction step:
         #
         adds = fold_constant_factors(adds)
-        self.pl(self.pp(adds))
+        self.pl(adds)
         #
         # At the end we need to transform our [addends[products]] list into
         # a nested AST node structure:
@@ -363,15 +383,15 @@ class ProductWalker(ast.NodeTransformer):
             elif is_int(b) and b.value == 1: return a
             return ast.BinOp(left=a, op=ast.Mult(), right=b)
         adds = list(map(lambda addend: reduce(mk_mult, addend[:], ast.Constant(1)) , adds))
-        self.pl(self.pp(adds))
+        self.pl(adds)
         expr = reduce(mk_add, adds, ast.Constant(0))
         self.states[-1].for_replacement = ast.Assign(
             targets=[node.target],
             value=[ expr ],
         )
         ast.fix_missing_locations(self.states[-1].for_replacement)
-        self.pl(self.pp(node))
-        self.pl('==>', self.pp(self.states[-1].for_replacement))
+        self.pl(node)
+        self.pl('==>', self.states[-1].for_replacement)
         return node
 
     def visit_Name(self, node):
@@ -424,15 +444,15 @@ class ProductWalker(ast.NodeTransformer):
                 if type(node.op) == ast.USub:
                     # rewrite '-x' as '((-1) * x)', falling through to
                     # the visit_BinOp_dfs(node) below with the rewritten node:
-                    self.pl('rewriting USub as BinOp.Mult:', self.pp(node))
+                    self.pl('rewriting USub as BinOp.Mult:', node)
                     node = ast.BinOp(left=ast.Constant(-1),
                                      op=ast.Mult(),
                                      right=node.operand)
                 else:
-                    self.pl('not optimizing; unhandled UnaryOp:', self.pp(node))
+                    self.pl('not optimizing; unhandled UnaryOp:', node)
                     self.states[-1].dont_optimize = True
             if type(node) == ast.BinOp:
-                self.pl('postvisit: visit_BinOp_dfs:',self.pp(node))
+                self.pl('postvisit: visit_BinOp_dfs:',node)
                 node = self.visit_BinOp_dfs(node)
             elif type(node) == ast.AugAssign and type(node.op) == ast.Add:
                 # TODO we could handle repeated
@@ -443,14 +463,14 @@ class ProductWalker(ast.NodeTransformer):
                     node = self.postprocess_augassign(node)
         return node
     def visit_BinOp_dfs(self, node):
-        pl, pp = self.pl, self.pp
         if is_add(node):
             node.adds = []
             left  = getattr(node.left, 'adds', [node.left])
             right = getattr(node.right, 'adds', [node.right])
             node.adds.extend(left)
             node.adds.extend(right)
-            self.pl('Add.adds:', self.pp(node.adds))
+            node.adds = fold_constant_factors(node.adds)
+            self.pl('Add.adds:', node.adds)
             return node
         elif type(node.op) == ast.Sub:
             node.adds = []
@@ -459,12 +479,13 @@ class ProductWalker(ast.NodeTransformer):
                      for factors in getattr(node.right, 'adds', [[node.right]]))
             node.adds.extend(left)
             node.adds.extend(right)
-            self.pl('Sub.adds:', self.pp(node.adds))
+            node.adds = fold_constant_factors(node.adds)
+            self.pl('Sub.adds:', node.adds)
             return node
         elif type(node.op) == ast.Mult:
             left = getattr(node.left, 'adds', [node.left])
             right = getattr(node.right, 'adds', [node.right])
-            self.pl('mult', pp(left), pp(right))
+            self.pl('mult', left, right)
             prod = []
             # here we have the factors with nested lists:
             # [5; [3;2]]
@@ -474,28 +495,32 @@ class ProductWalker(ast.NodeTransformer):
                 for t in p:
                     if type(t) is list: prod[-1] += t
                     else: prod[-1] += [t]
-            node.adds = prod
-            self.pl('prod', pp(prod))
+            node.adds = fold_constant_factors(prod)
+            self.pl('prod', node.adds)
         elif type(node.op) == ast.Pow and is_int(node.right):
             # rewrite [x**y] to [[*([x]*y)]] when y is a constant.
-            self.pl("pow left.adds:", self.pp(getattr(node.left, 'adds', node.left)))
+            self.pl("pow left.adds:", getattr(node.left, 'adds', node.left))
             prod = []
             for p in itertools.product(
                     *([getattr(
                         node.left,
                         'adds', [node.left])]*node.right.value)
             ):
+                # TODO this ends up creating rather many duplicates.
                 prod.append([])
                 for t in p:
+                    t = fold_constant_factors([t])
+                    assert len(t) == 1
+                    t = t[0]
                     if type(t) is list: prod[-1] += t
                     else: prod[-1] += [t]
-            node.adds = prod
+            node.adds = fold_constant_factors(prod)
             if not node.adds:
                 node.adds = [ast.Constant(1)] # ^0, identity of multiplication is 1
-            self.pl("pow left:", self.pp(node.left),
-                    "right:", self.pp(node.right), "node.adds:", self.pp(node.adds))
+            self.pl("pow left:", node.left,
+                    "right:", node.right, "node.adds:", node.adds)
         else:
-            self.pl('better safe than sorry, not optimizing because', type(node.op), self.pp(node))
+            self.pl('better safe than sorry, not optimizing because', type(node.op), node)
             self.states[-1].dont_optimize = True
         return node
 

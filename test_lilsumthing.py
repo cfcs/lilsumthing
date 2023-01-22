@@ -1,6 +1,20 @@
 import lilsumthing
 import ast
 
+def test_constant_folding_0():
+    #assert all(a.value == a.value for (a,b) in
+    from lilsumthing import pp
+    assert pp(lilsumthing.fold_constant_factors([ast.Constant(1)])) \
+        == pp([[ast.Constant(1)]])
+    assert pp(lilsumthing.fold_constant_factors([ast.Constant(-1)])) \
+        == pp([[ast.Constant(-1)]])
+    assert pp(lilsumthing.fold_constant_factors([[ast.Name("i"), ast.Constant(2)]])) \
+        == pp([[ast.Name("i"), ast.Constant(2)]])
+    assert pp(lilsumthing.fold_constant_factors([[ast.Name("i")]])) \
+        == pp([[ast.Name("i")]])
+    assert lilsumthing.fold_constant_factors([[]]) \
+        == []
+
 def test_linear0():
     '''independent of i, only depending on the length of the sequence:'''
     o = lilsumthing.optimize('''
