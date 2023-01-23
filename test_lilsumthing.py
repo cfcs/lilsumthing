@@ -678,6 +678,68 @@ for i in range(a,b):
     unparsed = ast.unparse(o)
     assert unparsed == 'S = 0\nS += b*(b+1)//2 - a*(a+1)//2'
 
+def test_sum_expr_0():
+    '''
+    >>> sum([i for i in range(10)])
+    45
+    >>> ast.dump(ast.parse('sum([i for i in range(10)])').body[0].value)
+    "Call(func=Name(id='sum', ctx=Load()),
+       args=[
+        ListComp(elt=Name(id='i', ctx=Load()), # loop body
+        generators=[
+          comprehension(target=Name(id='i', ctx=Store()), # loop var
+          iter=Call(func=Name(id='range', ctx=Load()),
+            args=[Constant(value=10)],
+            keywords=[]), ifs=[], is_async=0)])
+      ],
+      keywords=[])"
+
+    '''
+    orig_src = '''sum([i for i in range(10)])'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == '45'
+
+def test_sum_expr_1():
+    '''
+    >>> sum([i+2 for i in range(10)])
+    65
+    '''
+    orig_src = '''sum([i+2 for i in range(10)])'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == '65'
+
+def test_sum_expr_2_implicitstart():
+    '''
+    >>> sum([i+2 for i in range(10)], 2)
+    67
+    '''
+    orig_src = '''sum([i+2 for i in range(10)], 2)'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == '67'
+
+def test_sum_expr_3_explicitstart():
+    '''
+    >>> sum([i+2 for i in range(10)], 3)
+    68
+    '''
+    orig_src = '''sum([i+2 for i in range(10)], 3)'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == '68'
+
+def test_sum_expr_4_generator():
+    '''
+    >>> sum((i for i in range(10)))
+    45
+    '''
+    orig_src = '''sum((i for i in range(10)))'''
+    o = lilsumthing.optimize(orig_src)
+    unparsed = ast.unparse(o)
+    assert unparsed == '45'
+
 def test_range_equiv():
     '''∀x, x>=0: range_from(x) == range_from_to(0, x)'''
     pass

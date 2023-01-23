@@ -183,13 +183,25 @@ def is_int(n):
     return type(n) == ast.Constant and type(n.value) is int
 
 class StateMachine():
-    def __init__(self, for_target, for_range):
-        self.for_target : ast.Name = for_target # (i) in 'for i in range..'
+    def __init__(self, for_target, for_range, node_iter, replacement_target, accumulating_exprs=[], initial_value=ast.Constant(0)):
+        self.initial_value = initial_value
+        # the ast node to eventually be replaced (e.g ast.For or sum()):
+        self.replacement_target = replacement_target
+        # (i) in 'for i in range..':
+        self.for_target : ast.Name = for_target
+        # the range(..) in 'for i in range(..)'
+        self.node_iter = node_iter
+        # the dictionary with the parsed information:
         self.for_range = for_range
         # computed optimization to replace the ast.For loop with:
         self.for_replacement : ast.AST = None
         # abort optimizing this For loop:
         self.dont_optimize = False
+        # these are the nodes that capture the results of the summation.
+        # in a for-loop it could be the += (ast.AugAssign);
+        # or ast.ListComp.elt; or ast.GeneratorExpr.elt
+        self.accumulating_exprs = accumulating_exprs
+        assert isinstance(self.accumulating_exprs, list) # TODO typecheck
 
 def fold_constant_factors(lst):
     '''given a list like
@@ -310,9 +322,12 @@ class ProductWalker(ast.NodeTransformer):
                 }
         return node
 
-    def postprocess_augassign(self, node):
-        self.pl('postprocess_augassign', node)
-        adds = getattr(node.value, 'adds', [node.value])
+    def postprocess_expr(self, node):
+        '''
+        computes the final optimized version of an expression.
+        works on e.g. ast.AugAssign.value or ast.ListComp.elt
+        '''
+        adds = getattr(node, 'adds', [node])
         for lst in adds:
             for x in (type(lst) is list and lst or [lst]):
                 if type(x) == ast.Constant: continue
@@ -320,11 +335,10 @@ class ProductWalker(ast.NodeTransformer):
                 self.pl('postprocess: not rewriting because our adds is not Constant/Name:',
                         type(x), x, )
                 self.states[-1].dont_optimize = True
-                return node
+                return None
         self.pl(adds)
         adds = fold_constant_factors(adds)
         self.pl(adds)
-
         # after constant folding, we are left with products containing
         # variable names and constants, or just a single constant.
         # There are two categories:
@@ -354,14 +368,15 @@ class ProductWalker(ast.NodeTransformer):
                     # and set dont_optimize=True. TODO.
                     self.pl(f'powers of {powers_of_loop_var} not implemented, not optimizing')
                     self.states[-1].dont_optimize = True
-                    return node
+                    return None
                 pass # category 2
         self.pl(adds)
         #
         # Add the initial value of the counter: the 123 in
         # (S = 123, for ... S += ..):
         #
-        adds += [self.local_counters[node.target.id]['value']]
+        if self.states[-1].initial_value:
+            adds += [[self.states[-1].initial_value]]
         #
         # Final reduction step:
         #
@@ -385,6 +400,23 @@ class ProductWalker(ast.NodeTransformer):
         adds = list(map(lambda addend: reduce(mk_mult, addend[:], ast.Constant(1)) , adds))
         self.pl(adds)
         expr = reduce(mk_add, adds, ast.Constant(0))
+        return expr
+
+    def postprocess_listcomp(self, node):
+        expr = self.postprocess_expr(node.elt)
+        self.pl('got a comprehension', node.elt, '===>', expr)
+        if not expr:
+            return node
+        ast.fix_missing_locations(expr)
+        self.states[-1].for_replacement = expr
+        return node
+
+    def postprocess_augassign(self, node):
+        self.pl('postprocess_augassign', node)
+        expr = self.postprocess_expr(node.value)
+        if not expr:
+            # failed to optimize for some reason
+            return Node
         self.states[-1].for_replacement = ast.Assign(
             targets=[node.target],
             value=[ expr ],
@@ -409,13 +441,67 @@ class ProductWalker(ast.NodeTransformer):
     def generic_visit(self, node):
         self.node_id += 1 # our unique ID for this node
 
+        if self.states and node is self.states[-1].node_iter:
+            # (relevant for list comprehensions where the range() is inside
+            # the expression to be optimized)
+            self.pl('skipping our own range', node)
+            return node
+
         if type(node) == ast.For and not node.orelse:
             self.pl('ast.For loop:', ast.unparse(node))
             p_range = optimizable_range(node.iter)
-            self.states.append(StateMachine(node.target, p_range))
+            self.states.append(StateMachine(node.target, p_range,
+                                            replacement_target=node,
+                                            node_iter=node.iter))
             if not p_range:
                 self.states[-1].dont_optimize = True
+        elif type(node) == ast.Call and type(node.func) == ast.Name and 'sum'==node.func.id:
+            self.pl('ast.Call: sum()')
+            if not node.args:
+                self.pl('sum() without arguments TODO')
+                return node
+            initial_value = ast.Constant(0)
+            if (len(node.args) == 2 and [] == node.keywords):
+                initial_value = node.args[1]
+            elif len(node.args) == 1 and len(node.keywords) == 1 and 'start' == node.keywords[0].arg:
+                initial_value = node.keywords[0]
+            sum_args = node.args[0]
+            if type(sum_args) in [ast.ListComp, ast.GeneratorExp]:
+                # sum([ ... ]) or sum(( ... ))
+                # [a for a in range(2) for b in range(3)] has:
+                # len(.generators) == 2
+                # [ (for a in range(2)),  (for b in range(3)) ]
+                if len(sum_args.generators) != 1:
+                    self.pl('TODO handle nested comprehensions')
+                    if self.states: self.states[-1].dont_optimize = True
+                    return node
+                generator = sum_args.generators[0]
+                if type(generator) == ast.comprehension:
+                    # loop var: generator.target
+                    p_range = optimizable_range(generator.iter)
+                    loop_body = sum_args.elt
+                    self.states.append(StateMachine(
+                        generator.target, p_range,
+                        node_iter=generator.iter,
+                        replacement_target=node,
+                        initial_value=initial_value,
+                        accumulating_exprs=[loop_body]))
+                    if not p_range:
+                        self.states[-1].dont_optimize = True
+                    self.pl('sum', 'loop var:', generator.target,
+                            'range:', p_range,
+                            'loop_body:', loop_body,
+                            'initial_value:', initial_value)
         elif type(node) == ast.AugAssign:
+            if self.states:
+                # TODO this is a massive dirty hack; we should capture these
+                # during BFS and set initial_value (PLURAL) depending on which
+                # ones were referenced. For now, though, we overwrite:
+                if self.states[-1].initial_value.value != 0:
+                    self.pl("more than one AugAssign seen in this state. not implemented.")
+                    self.states[-1].dont_optimize = True
+                    return node
+                self.states[-1].initial_value = self.local_counters[node.target.id]['value']
             self.allowed_name_refs.add(node.target)
 
         # TODO still_optimizing is a mess here.
@@ -432,9 +518,12 @@ class ProductWalker(ast.NodeTransformer):
             if self.states:
                 still_optimizing = not self.states[-1].dont_optimize
 
-        if type(node) == ast.For and not node.orelse:
+        if self.states and node is self.states[-1].replacement_target:
             # this is where we need to modify (node) to replace the For loop
-            self.pl('ENDFOR')
+            if type(node) == ast.For and node.orelse:
+                self.pl('what to do about for.orelse?')
+                return node
+            self.pl('ENDSUM')
             finalstate = self.states.pop()
             if finalstate.for_replacement and not finalstate.dont_optimize:
                 ast.fix_missing_locations(finalstate.for_replacement)
@@ -461,6 +550,8 @@ class ProductWalker(ast.NodeTransformer):
                 # and do s_adds.extend(s2.adds) here. room for improvement :-)
                 if node.target.id in self.local_counters:
                     node = self.postprocess_augassign(node)
+            elif type(node) in [ast.ListComp, ast.GeneratorExp]:
+                node = self.postprocess_listcomp(node)
         return node
     def visit_BinOp_dfs(self, node):
         if is_add(node):
@@ -604,6 +695,8 @@ def optimizable_range(iterable):
 #          Constant(value=10),
 #          Constant(value=2)],
 #        keywords=[]),
+
+
 
 def optimize(code, filename='filename.py', verbose=True):
     # verbose defaults to True for tests

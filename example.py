@@ -5,6 +5,10 @@ def sum1(n):
         x += i * 123 * n
     return x
 
+def sum1_gen(n):
+    return sum((i * 123 * n
+                for i in range(100)))
+
 def sum2(n):
     # 328350 * n <=> (((100-1)*(100)*(2*(100-1)+1))//6)* n
     x = 0
@@ -37,6 +41,7 @@ def sum6(n):
     return S
 
 print(sum1(1)) # 608850
+print(sum1_gen(1)) # 608850
 print(sum2(1)) # 328350
 print(sum3(1)) # 1562500437500023125000099999985
 print(sum4(1)) # -1500000999995500002000000

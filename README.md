@@ -8,8 +8,6 @@ It presently handles multiplications and additions, subtractions, and simple exp
 
 Modulo/division, and other arithmetic operations would be nice to add.
 
-It would also be great to extend the "opportunity to optimize here" matching to cover list comprehensions and generator expressions in addition to `for i in range(..):`.
-
 ## Examples
 
 ### Usage
@@ -35,6 +33,9 @@ def sum1(n):
     for i in range(100):
         x += i * 123 * n
     return x
+
+def sum1_gen(n):
+    return sum((i * 123 * n for i in range(100)))
 ```
 ```bash
 $ python3 lilsumthing.py example1.py
@@ -46,6 +47,10 @@ $ python3 lilsumthing.py example1.py
 -        x += i * 123 * n
 +    x = n * 608850
      return x
+ 
+ def sum1_gen(n):
+-    return sum((i * 123 * n for i in range(100)))
++    return n * 608850
 ```
 
 The first example also highlights a glaring problem, namely that since we are using the `ast` module we are operating on an abstract syntax tree devoid of original comments, whitespace, etc, so we cannot produce a faithful, guaranteed-to-apply patch. Maybe in the future we could use [`libcst`](https://github.com/Instagram/LibCST) instead of the built-in `ast` module.
@@ -138,7 +143,6 @@ Besides exercising the hardcoded limit of `i**11`, this example demonstrates tha
 -        S += (2 + i * n) ** 9 * (n - i + 3) ** 2
 +    S = n * n * 92159907840027647998156799995904000000 + n * n * n * 895999086080281599978879999667200045312000000 + n * n * n * n * 5759993952001921919852159993248000777600000128000000 + n * n * n * n * n * 25199972640008903999375039928600007392000067199989056000000 + n * n * n * n * n * n * 74666582666694186665322666211946708666667823999865599998912000000 + n * n * n * n * n * n * n * 143999832000053400000239998191200141120009259999135999980640001248000000 + n * n * n * n * n * n * n * n * 163636165636418636372636359256363879963677643633303636214636372456363852000000 + n * n * n * n * n * n * n * n * n * 83333228787890954565954539692045514545559278782238787310037905787880434545414000000 + n * n * n * n * n * n * n * n * n * n * -18181802181820848485298484708484852684849524848454848479848484938484856000000 + n * n * n * n * n * n * n * n * n * n * n * 999999500000074999999999999300000000000004999999999999985000000000000 + n * 5759994240001734399909120000000 + 170666487466728960000000
      return S
-
 ```
 
 ## Math
