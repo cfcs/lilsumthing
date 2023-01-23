@@ -148,6 +148,7 @@ Besides exercising the hardcoded limit of `i**11`, this example demonstrates tha
 For constants `c`, that do not depend on the loop variable, it suffices to multiply by the length/cardinality of the range we are iterating over.
 
 <details>
+
 Example:
 ```python
 S = 0
@@ -159,6 +160,7 @@ Here we are adding 5 for each element `i` in`[0,1,2,3]`. We can rewrite that as:
 S = 0
 S += len(range(4)) * 5 # == len([0,1,2,3]) * 5 # = 4 * 5 = 20
 ```
+
 </details>
 
 ### Sums of `i` for loopvar `i`
@@ -175,6 +177,7 @@ The `//2` division doesn't truncate because either `n` or `n-1` will be an even 
 `i^1` uses the *Triangular number* formula described in the section above.
 
 <details>
+
 For higher values of `c`, most solutions involve computing either [Bernoulli numbers](https://en.wikipedia.org/wiki/Bernoulli_number) or [Stirling partition numbers](https://en.wikipedia.org/wiki/Stirling_numbers_of_the_second_kind), to be plotted into [Faulhaber's formula](https://en.wikipedia.org/wiki/Faulhaber%27s_formula).
 
 This gets pretty complicated, and slow, so for now, we hardcode the formulas for lower values of `c`, and fail to do anything sensible about e.g. `i^100`.
@@ -186,6 +189,7 @@ This gets pretty complicated, and slow, so for now, we hardcode the formulas for
 - see David Harvey's algorithm (according to wikipedia used in SageMath): https://arxiv.org/pdf/0807.1347.pdf
 5. and lastly this sounds promising https://arxiv.org/abs/1103.1585 but it reads pretty dense
 6. https://mathpages.com/home/kmath279/kmath279.htm here are some simple examples too
+
 </details>
 
 ### Sums of `c^i` for constant `c`, loopvar `i`
@@ -194,6 +198,7 @@ This one is sadly not implemented yet, but it would make a great addition.
 
 [sum of terms in geometric series with common factor `c`:](https://en.wikipedia.org/wiki/Geometric_series#Sum)
 <details>
+
 ```python
 >>> c = 10
 >>> n = 4
@@ -205,13 +210,16 @@ This one is sadly not implemented yet, but it would make a great addition.
 >>> (c**1 - c**(n+1))//(1-c)
 11110
 ```
+
 </details>
 
 Source: https://mathworld.wolfram.com/PowerSum.html
 <details>
+
 ```
 n
 ⅀ k * c**k = (c-(n+1)* c**(n+1) + n * c**(n+2)) // (c-1)**2
 k=0
 ```
+
 </details>
